@@ -11,13 +11,15 @@ This project applies **Large Language Models (LLMs)** and **unsupervised cluster
 ---
 
 ## 📂 Project Structure
+
 📁 LLM-Mental-Health-Clustering
- │── 📂 PYTHON/ # Python scripts for training, clustering, and embedding generation
- │── 📂 SH/ # Shell scripts for automation
- │── 📂 PDF/ # References and related research
- │── 📂 model_checkpoints/ # Saved model embeddings
- │── 📜 README.md # Documentation and reproducibility guide
- └── 🛑 .gitignore # Excludes sensitive data (DATA/)
+├── 📂 PYTHON/ → Python scripts for training, clustering, and embedding generation
+├── 📂 SH/ → Shell scripts for automation
+├── 📂 PDF/ → References and related research
+├── 📂 model_checkpoints/ → Saved model embeddings
+├── 📜 README.md → Documentation and reproducibility guide
+└── 🛑 .gitignore → Excludes sensitive data (DATA/)
+
 
 ---
 
