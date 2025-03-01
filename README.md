@@ -30,13 +30,13 @@ This project applies **Large Language Models (LLMs)** and **unsupervised cluster
 git clone https://github.com/manuelcorpas/LLM-Mental-Health-Clustering.git
 cd LLM-Mental-Health-Clustering
 ```
-2️⃣ Install Dependencies
+### 2️⃣ Install Dependencies
 On EC2 GPU Instance:
 ```bash
 sudo apt update && sudo apt install -y python3-pip
 pip install torch torchvision torchaudio transformers datasets scikit-learn pandas numpy tqdm accelerate
 ```
-3️⃣ Run the Training Script
+### 3️⃣ Run the Training Script
 ```bash
 python3 PYTHON/00-llm_cluster_pipeline.py \
   --train_csv DATA/RAECMBD_454_20241226-163036.csv \
@@ -46,11 +46,11 @@ python3 PYTHON/00-llm_cluster_pipeline.py \
   --batch_size 8 \
   --max_clusters 10
 ```
-4️⃣ Monitor GPU Usage
+### 4️⃣ Monitor GPU Usage
 ```bash
 watch -n 1 nvidia-smi
 ```
-📊 Research Methods
+## 📊 Research Methods
 * Data Source: Spanish National Registry of Hospital Discharges (RAE-CMBD)
 * Language Model: DeBERTa (microsoft/deberta-v3-base)
 * Clustering Method: K-Means with bootstrapped silhouette analysis
