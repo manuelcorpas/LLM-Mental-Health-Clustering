@@ -51,14 +51,14 @@ python3 PYTHON/00-llm_cluster_pipeline.py \
 watch -n 1 nvidia-smi
 ```
 📊 Research Methods
-Data Source: Spanish National Registry of Hospital Discharges (RAE-CMBD)
-Language Model: DeBERTa (microsoft/deberta-v3-base)
-Clustering Method: K-Means with bootstrapped silhouette analysis
-Evaluation Metrics: Cluster coherence, disease-specific feature weighting
+* Data Source: Spanish National Registry of Hospital Discharges (RAE-CMBD)
+* Language Model: DeBERTa (microsoft/deberta-v3-base)
+* Clustering Method: K-Means with bootstrapped silhouette analysis
+* Evaluation Metrics: Cluster coherence, disease-specific feature weighting
 
 📜 Citation
 If you use this work, please cite:
-Manuel Corpas, "LLM-Based Clustering of Adolescent Mental Health Data", 2025.
+* Manuel Corpas, "LLM-Based Clustering of Adolescent Mental Health Data", 2025.
 📬 Contact
-For questions or collaborations: 📧 mc@manuelcorpas.com
-🔗 GitHub Profile: https://github.com/manuelcorpas
+* For questions or collaborations: 📧 mc@manuelcorpas.com
+* 🔗 GitHub Profile: https://github.com/manuelcorpas
