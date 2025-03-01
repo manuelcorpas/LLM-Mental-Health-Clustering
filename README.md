@@ -56,9 +56,9 @@ watch -n 1 nvidia-smi
 * Clustering Method: K-Means with bootstrapped silhouette analysis
 * Evaluation Metrics: Cluster coherence, disease-specific feature weighting
 
-📜 Citation
+##📜 Citation
 If you use this work, please cite:
 * Manuel Corpas, "LLM-Based Clustering of Adolescent Mental Health Data", 2025.
-📬 Contact
+##📬 Contact
 * For questions or collaborations: 📧 mc@manuelcorpas.com
 * 🔗 GitHub Profile: https://github.com/manuelcorpas
