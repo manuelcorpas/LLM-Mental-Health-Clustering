@@ -1,30 +1,20 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
-00-llm_cluster_pipeline.py
+Self-Contained LLM Clustering Pipeline (DeBERTa-v3) for Co-Occurrence Diagnoses, 
+with Sex, Estancia Días, and Nivel Severidad APR appended to the embeddings.
 
-A single script that:
-1) Reads your CSV (one row per patient, with DIAGNOSTICO_PRINCIPAL).
-2) Loads ICD-10-CM code-descriptors from a text file, e.g.:
-      DATA/Code-descriptions-April-2025/icd10cm-codes-April-2025.txt
-   which might have lines like:
-      F11.2    Opioid dependence
-      F14.9    Cocaine use, unspecified
-   ...
-3) For each row, we parse the codes in DIAGNOSTICO_PRINCIPAL,
-   and map each to its descriptor, building a final text string
-   that includes only the medical terms (no raw code).
-   e.g.: "Opioid dependence Cocaine use, unspecified"
-4) Trains a DeBERTa model on masked language modeling (MLM).
-5) Does a simplified contrastive fine-tuning (DiffCSE-like).
-6) Generates embeddings for each row/patient.
-7) Bootstraps to find the best number of clusters.
-8) Clusters with K-Means and runs c-DF-IPF for cluster-specific codes.
+Usage Example:
+  python3 PYTHON/co_occurrence_clustering.py \
+    --train_csv DATA/RAECMBD_454_20241226-163036.csv \
+    --desc_file DATA/Code-descriptions-April-2025/icd10cm-codes-April-2025.txt \
+    --mlm_epochs 5 \
+    --fine_tune_epochs 5 \
+    --batch_size 16 \
+    --max_clusters 10
 
-Usage example:
-  python 00-llm_cluster_pipeline.py --train_csv PATH.csv --desc_file PATH.txt \
-    --mlm_epochs 2 --fine_tune_epochs 2 --batch_size 8 --max_clusters 10
-
-Requires:
+Dependencies:
   pip install transformers datasets torch scikit-learn pandas numpy tqdm
 """
 
@@ -36,7 +26,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from tqdm import tqdm
 
 # Hugging Face Transformers
@@ -71,7 +61,6 @@ def load_code_descriptors(desc_file):
             line = line.strip()
             if not line:
                 continue
-            # Suppose there's a tab or multiple spaces between code and descriptor
             parts = line.split(None, 1)  # split on first whitespace
             if len(parts) < 2:
                 continue
@@ -81,57 +70,46 @@ def load_code_descriptors(desc_file):
     return code2desc
 
 #############################################################################
-# 1. Dataset for reading single-row-per-patient
+# 1) SingleRowEHRDataset
 #############################################################################
 
 class SingleRowEHRDataset(Dataset):
     """
-    Reads a CSV with at least 'DIAGNOSTICO_PRINCIPAL'.
-    Optionally uses 'ID' if present. If not, we create a fake ID from the row index.
-
-    We'll store each row's diagnoses as a single text string *only using the descriptor*,
-    e.g. "Opioid dependence Cocaine use, unspecified" (with no codes).
+    Reads a CSV with co-occurring diagnoses across columns Diagnóstico 1..20.
+    Maps codes to their descriptors, building a single text string for each patient.
     """
     def __init__(self, csv_file, desc_file, max_length=256):
-        # 1) Read CSV
-        df = pd.read_csv(csv_file, low_memory=False)
+        df = pd.read_csv(csv_file, low_memory=True)
         df = df.reset_index(drop=True)
 
-        # 2) If no 'ID' column, create one
+        # Ensure each row has an ID (if not, create it)
         if "ID" not in df.columns:
             df["ID"] = df.index + 1
 
         self.df = df
-
-        # 3) Load code->descriptor dictionary
         self.code2desc = load_code_descriptors(desc_file)
 
-        # 4) For each row, parse DIAGNOSTICO_PRINCIPAL, map to descriptors only
+        # Build text lines from Diagnóstico 1..20
         self.texts = []
-        for idx, row in df.iterrows():
-            diag_str = row.get("DIAGNOSTICO_PRINCIPAL", "")
-            if pd.isna(diag_str):
-                diag_str = ""
-            # parse codes
-            codes = [c.strip() for c in diag_str.split(",") if c.strip()]
+        for _, row in df.iterrows():
+            diag_codes = []
+            for i in range(1, 21):
+                col_name = f"Diagnóstico {i}"
+                if col_name in row and pd.notna(row[col_name]):
+                    diag_codes.append(str(row[col_name]).strip())
 
-            # build text of descriptors only
-            desc_list = []
-            for code in codes:
-                # If the code is known, use the descriptor; else fallback
-                if code in self.code2desc:
-                    desc_list.append(self.code2desc[code])
-                else:
-                    desc_list.append("NOCODE")  # or skip it
+            # Convert each ICD code to a textual descriptor
+            desc_list = [self.code2desc.get(code, "NOCODE") for code in diag_codes]
             if not desc_list:
                 desc_list = ["NOCODE"]
+
+            # Join all descriptors into a single string
             text_line = " ".join(desc_list)
             self.texts.append(text_line)
 
-        # 5) Keep track of IDs
         self.ids = df["ID"].tolist()
 
-        # 6) DeBERTa V3 Base tokenizer
+        # Initialize DeBERTa tokenizer
         self.tokenizer = DebertaV2Tokenizer.from_pretrained("microsoft/deberta-v3-base")
         self.max_length = max_length
 
@@ -141,17 +119,13 @@ class SingleRowEHRDataset(Dataset):
     def __getitem__(self, idx):
         return self.texts[idx]
 
-    def get_id(self, idx):
-        return self.ids[idx]
-
-
 #############################################################################
-# 2. MLM Dataset wrapper
+# 2) MLMDataset for masked language modeling
 #############################################################################
 
 class MLMDataset(Dataset):
     """
-    Wraps SingleRowEHRDataset, performing tokenization for MLM.
+    Tokenizes the text lines for MLM. Each item is a dict with input_ids & attention_mask.
     """
     def __init__(self, raw_dataset, max_length=256):
         super().__init__()
@@ -173,12 +147,11 @@ class MLMDataset(Dataset):
         )
         return {
             "input_ids": enc["input_ids"].squeeze(0),
-            "attention_mask": enc["attention_mask"].squeeze(0)
+            "attention_mask": enc["attention_mask"].squeeze(0),
         }
 
-
 #############################################################################
-# 3. MLM Pre-training
+# 3) MLM Pre-training
 #############################################################################
 
 def mlm_pretrain(dataset, output_dir="mlm_pretrain", epochs=1, batch_size=8, lr=5e-5):
@@ -203,7 +176,6 @@ def mlm_pretrain(dataset, output_dir="mlm_pretrain", epochs=1, batch_size=8, lr=
         learning_rate=lr
     )
 
-    from torch.utils.data import random_split
     n = len(dataset)
     n_train = int(n * 0.9)
     n_eval = n - n_train
@@ -219,34 +191,34 @@ def mlm_pretrain(dataset, output_dir="mlm_pretrain", epochs=1, batch_size=8, lr=
     )
     trainer.train()
 
-    # Save
+    # Save model + tokenizer
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
     return trainer
 
-
 #############################################################################
-# 4. Simplified Contrastive Fine-tuning
+# 4) Contrastive Fine-tuning
 #############################################################################
 
 class ContrastiveDataset(Dataset):
     """
-    We'll do a naive approach: for each text, produce 2 random augmentations.
+    We do a naive data augmentation approach: each text is turned into two random
+    'perturbations' for the contrastive objective (shuffle or remove tokens).
     """
     def __init__(self, raw_dataset, max_length=256):
+        super().__init__()
         self.raw_dataset = raw_dataset
         self.tokenizer = raw_dataset.tokenizer
         self.max_length = max_length
 
     def random_perturb(self, text):
         tokens = text.split()
+        # remove up to 2 tokens if length permits
         if len(tokens) > 3:
-            # randomly remove 1 or 2 tokens
             n_drop = min(2, len(tokens)//3)
             for _ in range(n_drop):
                 idx = random.randint(0, len(tokens)-1)
                 tokens.pop(idx)
-        # shuffle
         random.shuffle(tokens)
         return " ".join(tokens)
 
@@ -280,18 +252,21 @@ class ContrastiveDataset(Dataset):
             "attention_mask2": enc2["attention_mask"].squeeze(0),
         }
 
-
 class ContrastiveModel(nn.Module):
     def __init__(self, pretrained_dir):
         super().__init__()
+        # Load the MLM-pretrained DeBERTa
         self.deberta = DebertaV2ForMaskedLM.from_pretrained(pretrained_dir)
         hidden_size = self.deberta.config.hidden_size
+        # A projection layer to get the final embedding
         self.proj = nn.Linear(hidden_size, hidden_size)
 
     def encode(self, input_ids, attention_mask):
+        # Pass through DeBERTa but only use the base network (self.deberta.deberta)
         outputs = self.deberta.deberta(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden = outputs.last_hidden_state  # shape [batch, seq_len, hidden]
-        # mean pool
+
+        # Mean pooling
         mask = attention_mask.unsqueeze(-1).float()
         masked_hidden = last_hidden * mask
         sum_hidden = torch.sum(masked_hidden, dim=1)
@@ -305,8 +280,10 @@ class ContrastiveModel(nn.Module):
         emb2 = self.encode(batch["input_ids2"], batch["attention_mask2"])
         return emb1, emb2
 
-
 def nt_xent_loss(emb1, emb2, temperature=0.05):
+    """
+    Normalized temperature-scaled cross entropy loss for contrastive learning.
+    """
     batch_size = emb1.size(0)
     emb1 = nn.functional.normalize(emb1, dim=-1)
     emb2 = nn.functional.normalize(emb2, dim=-1)
@@ -314,10 +291,10 @@ def nt_xent_loss(emb1, emb2, temperature=0.05):
     labels = torch.arange(batch_size, device=emb1.device)
     loss1 = nn.functional.cross_entropy(logits, labels)
     loss2 = nn.functional.cross_entropy(logits.t(), labels)
-    return 0.5*(loss1+loss2)
+    return 0.5*(loss1 + loss2)
 
-
-def contrastive_fine_tune(pretrained_dir, dataset, output_dir="contrastive_model", epochs=1, batch_size=8, lr=1e-5):
+def contrastive_fine_tune(pretrained_dir, dataset, output_dir="contrastive_model",
+                          epochs=1, batch_size=8, lr=1e-5):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Contrastive fine-tune device:", device)
 
@@ -332,7 +309,7 @@ def contrastive_fine_tune(pretrained_dir, dataset, output_dir="contrastive_model
             for k in b:
                 b[k] = b[k].to(device)
             emb1, emb2 = model(b)
-            loss = nt_xent_loss(emb1, emb2, temperature=0.05)
+            loss = nt_xent_loss(emb1, emb2)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -341,33 +318,36 @@ def contrastive_fine_tune(pretrained_dir, dataset, output_dir="contrastive_model
         avg_loss = total_loss / len(loader)
         print(f"Epoch {ep}, contrastive loss={avg_loss:.4f}")
 
+    # Save final model artifacts
     os.makedirs(output_dir, exist_ok=True)
     model.deberta.save_pretrained(output_dir)
     torch.save(model.state_dict(), os.path.join(output_dir, "contrastive_model.bin"))
     return model
 
-
 #############################################################################
-# 5. Generate embeddings for each row
+# 5) Generate Embeddings
 #############################################################################
 
 def generate_embeddings(model_dir, dataset, batch_size=8):
+    """
+    Runs the ContrastiveModel in inference mode to get a single embedding per row/patient.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ContrastiveModel(model_dir)
     model.load_state_dict(torch.load(os.path.join(model_dir, "contrastive_model.bin")))
     model = model.to(device)
     model.eval()
 
-    texts = dataset.raw_dataset
+    raw_data = dataset.raw_dataset
     results = []
-    loader = DataLoader(range(len(texts)), batch_size=batch_size, shuffle=False)
 
+    loader = DataLoader(range(len(raw_data)), batch_size=batch_size, shuffle=False)
     with torch.no_grad():
         for idxs in tqdm(loader, desc="Generating embeddings"):
             input_ids_list = []
             attention_mask_list = []
             for i in idxs:
-                text = texts[i]
+                text = raw_data[i]
                 enc = dataset.tokenizer(
                     text,
                     max_length=dataset.max_length,
@@ -377,6 +357,7 @@ def generate_embeddings(model_dir, dataset, batch_size=8):
                 )
                 input_ids_list.append(enc["input_ids"])
                 attention_mask_list.append(enc["attention_mask"])
+
             input_ids_batch = torch.cat(input_ids_list, dim=0).to(device)
             attention_mask_batch = torch.cat(attention_mask_list, dim=0).to(device)
 
@@ -384,16 +365,19 @@ def generate_embeddings(model_dir, dataset, batch_size=8):
             for k, iidx in enumerate(idxs):
                 results.append((iidx, emb[k]))
 
+    # Sort by original index, then build a single array
     results.sort(key=lambda x: x[0])
     embeddings = np.array([r[1] for r in results])
     return embeddings
 
-
 #############################################################################
-# 6. Bootstrap for K
+# 6) Bootstrap for K
 #############################################################################
 
 def bootstrap_find_k(embeddings, max_k=10, n_bootstrap=5, sample_frac=0.01):
+    """
+    Uses a simple bootstrap-based silhouette score to pick an optimal K.
+    """
     best_k = None
     best_score = -9999
     k2scores = {k: [] for k in range(2, max_k+1)}
@@ -406,12 +390,13 @@ def bootstrap_find_k(embeddings, max_k=10, n_bootstrap=5, sample_frac=0.01):
         for k in range(2, max_k+1):
             ac = AgglomerativeClustering(n_clusters=k)
             labels = ac.fit_predict(sub_emb)
+            # Only compute silhouette if more than one cluster exists
             if len(np.unique(labels)) > 1:
                 score = silhouette_score(sub_emb, labels)
                 k2scores[k].append(score)
 
     for k in range(2, max_k+1):
-        if len(k2scores[k]) > 0:
+        if k2scores[k]:
             mean_score = np.mean(k2scores[k])
             if mean_score > best_score:
                 best_score = mean_score
@@ -419,31 +404,32 @@ def bootstrap_find_k(embeddings, max_k=10, n_bootstrap=5, sample_frac=0.01):
     print(f"Chosen best_k={best_k} by silhouette (score={best_score:.4f})")
     return best_k
 
-
 #############################################################################
-# 7. K-Means
+# 7) K-Means
 #############################################################################
 
 def run_kmeans(embeddings, k):
+    """
+    K-Means clustering with multiple (10) random inits.
+    """
     km = KMeans(n_clusters=k, random_state=42, n_init=10)
     labels = km.fit_predict(embeddings)
     return labels
 
-
 #############################################################################
-# 8. c-DF-IPF
+# 8) c-DF-IPF
 #############################################################################
 
 def compute_cdfipf(df, diag_col="DIAGNOSTICO_PRINCIPAL", cluster_col="cluster"):
     """
-    We parse DIAGNOSTICO_PRINCIPAL as codes (raw codes, not descriptors) for c-DF-IPF.
-    If you want the final cluster interpretation to mention codes, this is how.
-    If you prefer the descriptors at cluster-level, adapt accordingly.
+    For each cluster, compute cluster-level Disease Frequency – Inverse Patient Frequency.
+    This is analogous to TF-IDF for diagnoses across clusters.
     """
     df = df.copy()
     all_codes = set()
     pid2codes = {}
 
+    # Build a set of codes assigned to each patient
     for idx, row in df.iterrows():
         pid = row["ID"]
         diag_str = row.get(diag_col, "")
@@ -451,32 +437,30 @@ def compute_cdfipf(df, diag_col="DIAGNOSTICO_PRINCIPAL", cluster_col="cluster"):
         if not codes:
             codes = {"NOCODE"}
         pid2codes[pid] = codes
-        for c in codes:
-            all_codes.add(c)
+        all_codes.update(codes)
 
     # cluster -> list of pids
     cluster2pids = {}
     for idx, row in df.iterrows():
         c = row[cluster_col]
         pid = row["ID"]
-        if c not in cluster2pids:
-            cluster2pids[c] = []
-        cluster2pids[c].append(pid)
+        cluster2pids.setdefault(c, []).append(pid)
 
     n_patients = df["ID"].nunique()
+
+    # Count how many patients have each code
     code2count = {c: 0 for c in all_codes}
-    for pid in pid2codes:
-        for cd in pid2codes[pid]:
+    for pid, cset in pid2codes.items():
+        for cd in cset:
             code2count[cd] += 1
 
+    # Inverse Patient Frequency: log(total patients / code frequency)
     code2ipf = {}
     for c in all_codes:
         nd = code2count[c]
-        if nd == 0:
-            code2ipf[c] = 0
-        else:
-            code2ipf[c] = math.log(n_patients / nd)
+        code2ipf[c] = math.log(n_patients / nd) if nd > 0 else 0
 
+    # For each cluster, compute average IPF for codes present
     cluster2dfipf = {}
     for c, pids in cluster2pids.items():
         sums = {cd: 0.0 for cd in all_codes}
@@ -484,11 +468,14 @@ def compute_cdfipf(df, diag_col="DIAGNOSTICO_PRINCIPAL", cluster_col="cluster"):
             for cd in pid2codes[pid]:
                 sums[cd] += code2ipf[cd]
         csize = len(pids)
+        if csize == 0:
+            cluster2dfipf[c] = sums
+            continue
         for cd in sums:
-            sums[cd] = sums[cd]/csize if csize>0 else 0
+            sums[cd] /= csize
         cluster2dfipf[c] = sums
-    return cluster2dfipf
 
+    return cluster2dfipf
 
 #############################################################################
 # MAIN
@@ -496,20 +483,24 @@ def compute_cdfipf(df, diag_col="DIAGNOSTICO_PRINCIPAL", cluster_col="cluster"):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_csv", type=str, required=True,
-                        help="CSV with 'DIAGNOSTICO_PRINCIPAL' column.")
-    parser.add_argument("--desc_file", type=str, required=True,
-                        help="File with lines: CODE [space/tab] DESCRIPTOR")
-    parser.add_argument("--mlm_epochs", type=int, default=1,
-                        help="Epochs for MLM pre-training.")
-    parser.add_argument("--fine_tune_epochs", type=int, default=1,
-                        help="Epochs for contrastive fine-tuning.")
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--max_clusters", type=int, default=10)
+    parser.add_argument("--train_csv", required=True,
+                        help="CSV with Diagnóstico columns (Diagnóstico 1..20).")
+    parser.add_argument("--desc_file", required=True,
+                        help="ICD code descriptors file (CODE [whitespace] DESC).")
+    parser.add_argument("--mlm_epochs", type=int, default=5,
+                        help="MLM pre-training epochs.")
+    parser.add_argument("--fine_tune_epochs", type=int, default=5,
+                        help="Contrastive fine-tuning epochs.")
+    parser.add_argument("--batch_size", type=int, default=16,
+                        help="Batch size.")
+    parser.add_argument("--max_clusters", type=int, default=10,
+                        help="Max number of clusters to try in bootstrap.")
     args = parser.parse_args()
 
-    # 1) Load single-row EHR with descriptor mapping
+    print("\n=== Loading SingleRowEHRDataset ===")
     raw_dataset = SingleRowEHRDataset(args.train_csv, args.desc_file, max_length=256)
+
+    print("\n=== Building MLMDataset for Pre-training ===")
     mlm_dataset = MLMDataset(raw_dataset, max_length=256)
 
     print("=== Step 1: MLM Pre-training ===")
@@ -520,7 +511,7 @@ def main():
         batch_size=args.batch_size,
         lr=5e-5
     )
-    print("MLM pre-training done.")
+    print("MLM pre-training done.\n")
 
     print("=== Step 2: Contrastive Fine-tuning ===")
     contrastive_data = ContrastiveDataset(raw_dataset, max_length=256)
@@ -532,27 +523,47 @@ def main():
         batch_size=args.batch_size,
         lr=1e-5
     )
-    print("Contrastive fine-tuning done.")
+    print("Contrastive fine-tuning done.\n")
 
-    print("=== Step 3: Generate Embeddings ===")
-    emb = generate_embeddings("contrastive_model", contrastive_data, batch_size=args.batch_size)
-    print(f"Embeddings shape = {emb.shape}")
+    print("=== Step 3: Generating Embeddings ===")
+    text_emb = generate_embeddings("contrastive_model", contrastive_data, batch_size=args.batch_size)
+    print(f"Text Embeddings shape = {text_emb.shape}\n")
+
+    # ------------------------------------------------------------------------
+    #  Add the numeric features (Sexo, Estancia Días, Nivel Severidad APR)
+    #  to the text embeddings to form the final array used for clustering.
+    # ------------------------------------------------------------------------
+    print("=== Appending Sexo, Estancia Días, Nivel Severidad APR to embeddings ===")
+    df = raw_dataset.df.copy()
+
+    # Convert columns to numeric (fill missing values if needed)
+    df["Sexo_num"] = df["Sexo"].fillna(-1).astype(float)
+    df["Estancia_num"] = df["Estancia Días"].fillna(0).astype(float)
+    df["Severidad_num"] = df["Nivel Severidad APR"].fillna(0).astype(float)
+
+    # Stack them: final embeddings => (N, 768 + 3)
+    sexo_arr = df["Sexo_num"].values.reshape(-1, 1)
+    estancia_arr = df["Estancia_num"].values.reshape(-1, 1)
+    severidad_arr = df["Severidad_num"].values.reshape(-1, 1)
+
+    final_emb = np.hstack([text_emb, sexo_arr, estancia_arr, severidad_arr])
+    print("Final embeddings shape =", final_emb.shape, "\n")
 
     print("=== Step 4: Bootstrap for K ===")
-    best_k = bootstrap_find_k(emb, max_k=args.max_clusters, n_bootstrap=5, sample_frac=0.01)
+    best_k = bootstrap_find_k(final_emb, max_k=args.max_clusters, n_bootstrap=5, sample_frac=0.01)
+    print(f"Chosen best_k = {best_k}\n")
 
-    print("=== Step 5: Final K-Means ===")
-    labels = run_kmeans(emb, best_k)
-    print(f"Assigned {len(labels)} patients to {best_k} clusters.")
+    print("=== Step 5: K-Means Clustering ===")
+    labels = run_kmeans(final_emb, best_k)
+    print(f"Assigned {len(labels)} patients to {best_k} clusters.\n")
 
-    print("=== Step 6: c-DF-IPF ===")
-    # We'll add 'cluster' to the raw_dataset.df
-    df = raw_dataset.df.copy()
+    # Store cluster labels in df
     df["cluster"] = labels
 
-    # compute c-DF-IPF on the raw codes (since DIAGNOSTICO_PRINCIPAL was codes)
-    cluster2dfipf = compute_cdfipf(df, diag_col="DIAGNOSTICO_PRINCIPAL", cluster_col="cluster")
-    # get top 5 for each cluster
+    print("=== Step 6: c-DF-IPF ===")
+    # Example: use 'Diagnóstico 1' as the column with codes, or unify them as needed
+    cluster2dfipf = compute_cdfipf(df, diag_col="Diagnóstico 1", cluster_col="cluster")
+
     for c in sorted(cluster2dfipf.keys()):
         code_map = cluster2dfipf[c]
         sorted_items = sorted(code_map.items(), key=lambda x: x[1], reverse=True)
@@ -561,12 +572,11 @@ def main():
         for cd, val in top5:
             print(f"  {cd}: {val:.4f}")
 
-    # Save final
-    df.to_csv("clustered_patients.csv", index=False)
-    print("\nDone! Wrote 'clustered_patients.csv' with cluster assignments.")
-    print("You can run e.g.:")
-    print("  python3.11 00-llm_cluster_pipeline.py --train_csv data.csv --desc_file codes.txt --mlm_epochs 2 --fine_tune_epochs 2 --batch_size 8 --max_clusters 10")
-
+    output_file = "clustered_patients.csv"
+    df.to_csv(output_file, index=False)
+    print(f"\nClustering complete. Results saved in '{output_file}'.")
+    print("Done.")
 
 if __name__ == "__main__":
     main()
+
