@@ -1,0 +1,204 @@
+
+=== Analyzing subset with Sexo=1 (n=6705) ===
+
+Descriptive Stats for 'Año' (Sexo=1):
+Value Counts:
+ Año
+2019    1577
+2018    1495
+2017    1296
+2020    1258
+2016    1079
+Name: count, dtype: int64
+Proportions (%):
+ Año
+2019    23.52
+2018    22.30
+2017    19.33
+2020    18.76
+2016    16.09
+Name: count, dtype: float64
+
+Descriptive Stats for 'Sexo' (subset = 1 only):
+Value Counts:
+ Sexo
+1    6705
+Name: count, dtype: int64
+Proportions (%):
+ Sexo
+1    100.0
+Name: count, dtype: float64
+
+Descriptive Stats for 'Diagnóstico Principal' (Sexo=1):
+Top 10 Value Counts:
+ Diagnóstico Principal
+F29        270
+K35.80     201
+F23        185
+F91.9      150
+J93.11     107
+E10.10      88
+F12.159     87
+J45.901     86
+F12.259     80
+J18.9       80
+Name: count, dtype: int64
+Total unique codes: 1603
+
+Descriptive Stats for 'Estancia Días' (Sexo=1):
+count     6705.000000
+mean        10.366145
+std        131.569952
+min          0.000000
+25%          2.000000
+50%          5.000000
+75%         10.000000
+max      10697.000000
+Name: Estancia Días, dtype: float64
+
+Descriptive Stats for 'Nivel Severidad APR' (Sexo=1):
+Value Counts:
+ Nivel Severidad APR
+1    4004
+2    2135
+3     463
+4      84
+0      19
+Name: count, dtype: int64
+Proportions (%):
+ Nivel Severidad APR
+1    59.72
+2    31.84
+3     6.91
+4     1.25
+0     0.28
+Name: count, dtype: float64
+
+Descriptive Stats for 'Coste APR' (Sexo=1):
+count      6705.000000
+mean       4621.667680
+std        4385.420401
+min         705.735921
+25%        2749.586782
+50%        3929.479361
+75%        5146.988142
+max      106553.421875
+Name: Coste APR, dtype: float64
+
+=== Finished analysis for Sexo=1. ===
+
+=== Analyzing subset with Sexo=2 (n=7801) ===
+
+Descriptive Stats for 'Año' (Sexo=2):
+Value Counts:
+ Año
+2019    1749
+2018    1695
+2020    1541
+2017    1479
+2016    1337
+Name: count, dtype: int64
+Proportions (%):
+ Año
+2019    22.42
+2018    21.73
+2020    19.75
+2017    18.96
+2016    17.14
+Name: count, dtype: float64
+
+Descriptive Stats for 'Sexo' (subset = 2 only):
+Value Counts:
+ Sexo
+2    7801
+Name: count, dtype: int64
+Proportions (%):
+ Sexo
+2    100.0
+Name: count, dtype: float64
+
+Descriptive Stats for 'Diagnóstico Principal' (Sexo=2):
+Top 10 Value Counts:
+ Diagnóstico Principal
+F60.3      275
+O48.0      228
+N10        215
+O42.02     179
+F43.25     172
+F91.9      150
+O99.334    128
+F32.9      125
+J45.901    121
+K35.80     108
+Name: count, dtype: int64
+Total unique codes: 1349
+
+Descriptive Stats for 'Estancia Días' (Sexo=2):
+count    7801.000000
+mean        7.224715
+std        11.784524
+min         0.000000
+25%         2.000000
+50%         4.000000
+75%         8.000000
+max       458.000000
+Name: Estancia Días, dtype: float64
+
+Descriptive Stats for 'Nivel Severidad APR' (Sexo=2):
+Value Counts:
+ Nivel Severidad APR
+1    4506
+2    2785
+3     436
+4      48
+0      26
+Name: count, dtype: int64
+Proportions (%):
+ Nivel Severidad APR
+1    57.76
+2    35.70
+3     5.59
+4     0.62
+0     0.33
+Name: count, dtype: float64
+
+Descriptive Stats for 'Coste APR' (Sexo=2):
+count      7801.000000
+mean       3884.362050
+std        3136.439996
+min         945.445284
+25%        2477.039158
+50%        3295.185546
+75%        4378.258672
+max      105928.789062
+Name: Coste APR, dtype: float64
+
+=== Finished analysis for Sexo=2. ===
+
+=== Statistical Comparison: Males (Sexo=1) vs. Females (Sexo=2) ===
+
+--- Mann-Whitney U test for 'Estancia Días' ---
+  Males n=6705, median=5.00
+  Females n=7801, median=4.00
+  U-statistic=28404035.0, p-value=2.28e-19
+
+--- Mann-Whitney U test for 'Coste APR' ---
+  Males n=6705, median=3929.48
+  Females n=7801, median=3295.19
+  U-statistic=31057313.5, p-value=1.02e-84
+
+--- Chi-Square for 'Año' (Male vs. Female) ---
+  #categories = 5
+  chi2=6.898, p-value=0.141, dof=4
+
+--- Chi-Square for 'Nivel Severidad APR' (Male vs. Female) ---
+  #categories = 5
+  chi2=44.651, p-value=4.7e-09, dof=4
+
+--- Chi-Square for 'Diagnóstico Principal (Limited)' (Male vs. Female) ---
+  #categories = 21
+  chi2=1342.744, p-value=2.07e-272, dof=20
+
+=== End of M/F Comparisons ===
+
+=== DONE. Analyses by sex have been generated, plus statistical comparisons. ===

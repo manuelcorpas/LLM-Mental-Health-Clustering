@@ -4,6 +4,29 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import mannwhitneyu, chi2_contingency
+
+def coerce_to_numeric(series):
+    """
+    Converts a mixed-type series to string, replaces commas with dots, and
+    then tries to convert to float. Non-convertible values become NaN.
+    """
+    return pd.to_numeric(series.astype(str).str.replace(',', '.'), errors='coerce')
+
+def limit_diagnosis_to_top_n(df, n=20, diag_col="Diagnóstico Principal"):
+    """
+    Keeps only the top n most frequent diagnoses in diag_col, and lumps
+    all others as 'OTHER'.
+    """
+    diag_counts = df[diag_col].value_counts()
+    top_n_codes = set(diag_counts.head(n).index)  # top n frequent codes
+
+    # Create a new column, e.g. 'Diagnóstico Principal (Limited)'
+    limited_col = diag_col + " (Limited)"
+    df[limited_col] = df[diag_col].apply(
+        lambda x: x if x in top_n_codes else "OTHER"
+    )
+    return df, limited_col
 
 def analyze_subset(subdf, sex_val):
     """
@@ -34,7 +57,6 @@ def analyze_subset(subdf, sex_val):
         plt.show()
 
     # B) Sexo (categorical)
-    #   Here, we already know it's either 1 or 2, but let's show the counts anyway.
     if 'Sexo' in subdf.columns:
         print(f"\nDescriptive Stats for 'Sexo' (subset = {sex_val} only):")
         sexo_counts = subdf['Sexo'].value_counts(dropna=False)
@@ -50,7 +72,7 @@ def analyze_subset(subdf, sex_val):
         plt.tight_layout()
         plt.show()
 
-    # C1) Diagnóstico Principal (codes only)
+    # C1) Diagnóstico Principal (codes)
     if 'Diagnóstico Principal' in subdf.columns:
         print(f"\nDescriptive Stats for 'Diagnóstico Principal' (Sexo={sex_val}):")
         diag_counts = subdf['Diagnóstico Principal'].value_counts(dropna=False)
@@ -154,27 +176,101 @@ def analyze_subset(subdf, sex_val):
 
     print(f"\n=== Finished analysis for Sexo={sex_val}. ===")
 
+def compare_categorical(df, column_name):
+    """
+    Runs a Chi-Square test comparing distribution of 'column_name' across males vs. females.
+    """
+    df_m = df[df["Sexo"] == 1]
+    df_f = df[df["Sexo"] == 2]
+
+    cats_m = set(df_m[column_name].dropna().unique())
+    cats_f = set(df_f[column_name].dropna().unique())
+    all_cats = sorted(cats_m.union(cats_f))
+
+    table = []
+    for cat in all_cats:
+        male_count = (df_m[column_name] == cat).sum()
+        female_count = (df_f[column_name] == cat).sum()
+        table.append([male_count, female_count])
+    table = np.array(table, dtype=int)
+
+    if table.shape[0] < 2:
+        print(f"\n[SKIP] For '{column_name}', only one category => no chi-square.")
+        return
+
+    chi2, pval, dof, expected = chi2_contingency(table)
+    print(f"\n--- Chi-Square for '{column_name}' (Male vs. Female) ---")
+    print(f"  #categories = {len(all_cats)}")
+    print(f"  chi2={chi2:.3f}, p-value={pval:.3g}, dof={dof}")
+
+def compare_male_female(df_full):
+    """
+    Performs simple statistical tests:
+      1) Mann-Whitney U for numeric columns
+      2) Chi-square for multiple categorical columns
+         (including the top 20 Diagnóstico Principal).
+    """
+
+    from scipy.stats import mannwhitneyu, chi2_contingency
+
+    print("\n=== Statistical Comparison: Males (Sexo=1) vs. Females (Sexo=2) ===")
+
+    # 1) Numeric columns => Mann-Whitney
+    numeric_cols = ["Estancia Días", "Coste APR"]
+    df_m = df_full[df_full["Sexo"] == 1].copy()
+    df_f = df_full[df_full["Sexo"] == 2].copy()
+
+    for col in numeric_cols:
+        if col in df_full.columns and pd.api.types.is_numeric_dtype(df_full[col]):
+            male_vals = df_m[col].dropna()
+            female_vals = df_f[col].dropna()
+            if len(male_vals) > 1 and len(female_vals) > 1:
+                stat, pval = mannwhitneyu(male_vals, female_vals, alternative="two-sided")
+                print(f"\n--- Mann-Whitney U test for '{col}' ---")
+                print(f"  Males n={len(male_vals)}, median={male_vals.median():.2f}")
+                print(f"  Females n={len(female_vals)}, median={female_vals.median():.2f}")
+                print(f"  U-statistic={stat:.1f}, p-value={pval:.3g}")
+            else:
+                print(f"\n[SKIP] Not enough data in column '{col}' for MW test.")
+        else:
+            print(f"\n[SKIP] Column '{col}' is not numeric or not found.")
+
+    # 2) Chi-square on:
+    #    - Año
+    #    - Nivel Severidad APR
+    #    - Diagnóstico Principal (Limited) => top 20
+    cat_cols = ["Año", "Nivel Severidad APR"]
+    for cat_col in cat_cols:
+        if cat_col in df_full.columns:
+            compare_categorical(df_full, cat_col)
+        else:
+            print(f"\n[SKIP] Column '{cat_col}' not found in DataFrame.")
+
+    # For Diagnóstico Principal, limit to top 20 + "OTHER"
+    if "Diagnóstico Principal" in df_full.columns:
+        # Make a new column with the top 20 diagnoses + "OTHER"
+        df_limited, limited_col = limit_diagnosis_to_top_n(df_full, n=20, diag_col="Diagnóstico Principal")
+        compare_categorical(df_limited, limited_col)
+    else:
+        print("\n[SKIP] 'Diagnóstico Principal' column not found => no top-20 test.")
+
+    print("\n=== End of M/F Comparisons ===")
 
 def analyze_data_by_sex(csv_file_path, icd_file_path):
     """
-    Reads the main CSV, merges with an ICD reference file, then splits
-    into two sub-dataframes by sex (Sexo=1, Sexo=2) and runs descriptive
-    statistics/plots for each subset.
+    Reads the main CSV, merges with an ICD reference file, splits into sub-dataframes by sex
+    for descriptive plots, and does Mann-Whitney and Chi-Square tests. For Diagnóstico Principal,
+    it lumps all but the top 20 codes as "OTHER" before Chi-Square.
     """
 
     # 1) Read the main CSV
-    # -------------------------------------------------------------------------
     try:
-        df = pd.read_csv(csv_file_path, encoding='utf-8', delimiter=',')
+        df = pd.read_csv(csv_file_path, encoding='utf-8', delimiter=',', low_memory=False)
     except Exception as e:
         print(f"ERROR reading main CSV at '{csv_file_path}':\n{e}")
         return
 
-    print("[DEBUG] Loaded main CSV. Shape:", df.shape)
-    print("[DEBUG] CSV columns:", df.columns.tolist())
-
-    # 2) Read the ICD reference file and parse
-    # -------------------------------------------------------------------------
+    # 2) Read the ICD reference file
     icd_data = []
     try:
         with open(icd_file_path, 'r', encoding='utf-8') as f:
@@ -196,8 +292,13 @@ def analyze_data_by_sex(csv_file_path, icd_file_path):
 
     icd_ref = pd.DataFrame(icd_data, columns=['icd_code', 'icd_description'])
 
-    # 3) Clean & uppercase codes in main CSV
-    # -------------------------------------------------------------------------
+    # 3) Convert numeric columns
+    if 'Estancia Días' in df.columns:
+        df['Estancia Días'] = coerce_to_numeric(df['Estancia Días'])
+    if 'Coste APR' in df.columns:
+        df['Coste APR'] = coerce_to_numeric(df['Coste APR'])
+
+    # 4) Clean & uppercase codes in main CSV
     df['Diagnóstico Principal'] = df['Diagnóstico Principal'].astype(str)
 
     def clean_csv_code(code):
@@ -217,34 +318,33 @@ def analyze_data_by_sex(csv_file_path, icd_file_path):
     icd_ref['icd_code'] = icd_ref['icd_code'].astype(str)
     icd_ref['clean_code'] = icd_ref['icd_code'].apply(clean_icd_code)
 
-    # 4) Merge
-    # -------------------------------------------------------------------------
+    # 5) Merge with ICD descriptors
     merged_df = df.merge(icd_ref, how='left', left_on='clean_code', right_on='clean_code')
     merged_df.rename(columns={'icd_description': 'Diagnóstico Principal (Desc)'}, inplace=True)
     merged_df.drop(columns=['icd_code', 'clean_code'], inplace=True, errors='ignore')
 
-    # Optionally combine code + description
     if 'Diagnóstico Principal (Desc)' in merged_df.columns:
         merged_df['code_plus_desc'] = (
             merged_df['Diagnóstico Principal'].fillna('') + ' - '
             + merged_df['Diagnóstico Principal (Desc)'].fillna('NO MATCH')
         )
 
-    # 5) Now create subsets by sex and run the analysis for each
-    # -------------------------------------------------------------------------
+    # 6) Descriptive analysis/plots by sex
     for sex_val in [1, 2]:
         subdf = merged_df[merged_df['Sexo'] == sex_val].copy()
         analyze_subset(subdf, sex_val)
 
-    print("\n=== DONE. Analyses by sex have been generated. ===")
+    # 7) Statistical comparisons
+    compare_male_female(merged_df)
+
+    print("\n=== DONE. Analyses by sex have been generated, plus statistical comparisons. ===")
 
 
 if __name__ == "__main__":
     # Example usage:
-    #   python3.11 PYTHON/00-00-01-analyze-data-by-sex.py 
+    #   python3.11 PYTHON/00-00-01-analyze-data-by-sex.py
 
     csv_file_path = "DATA/RAECMBD_454_20241226-163036.csv"
     icd_file_path = "DATA/Code-descriptions-April-2025/icd10cm-codes-April-2025.txt"
 
     analyze_data_by_sex(csv_file_path, icd_file_path)
-
