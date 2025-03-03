@@ -451,7 +451,7 @@ def compute_cdfipf(df, diag_col="Diagnóstico 1", cluster_col="cluster"):
 
     # Build a set of codes assigned to each patient
     for idx, row in df.iterrows():
-        pid = row["ID"]
+        pid = row["ID"]  # Must exist in df
         diag_str = row.get(diag_col, "")
         codes = set(x.strip() for x in diag_str.split(",") if x.strip())
         if not codes:
@@ -606,6 +606,13 @@ def main():
 
     # Read the entire dataset
     df_full = pd.read_csv(args.train_csv, low_memory=True)
+    
+    # -----------------------------------------------------------------------
+    # Minimal fix: ensure df_full has "ID" before we do anything else
+    # -----------------------------------------------------------------------
+    if "ID" not in df_full.columns:
+        df_full["ID"] = df_full.index + 1
+    
     print(f"Loaded {len(df_full)} rows from '{args.train_csv}'.")
 
     # Separate into males (Sexo=1) and females (Sexo=2)
@@ -641,4 +648,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
