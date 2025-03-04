@@ -3,11 +3,11 @@
 
 """
 Self-Contained LLM Clustering Pipeline (DeBERTa-v3) for Co-Occurrence Diagnoses,
-analyzing males (Sexo=1) and females (Sexo=2) separately.
+analyzing males (Sex=1) and females (Sex=2) separately.
 
 Usage Example:
   python3 PYTHON/04-00-llm_cluster_co-occ_sep_sex.py \
-    --train_csv DATA/RAECMBD_454_20241226-163036.csv \
+    --train_csv DATA/RAECMBD_454_20241226-163036_pruned.csv \
     --desc_file DATA/Code-descriptions-April-2025/icd10cm-codes-April-2025.txt \
     --mlm_epochs 5 \
     --fine_tune_epochs 5 \
@@ -49,11 +49,11 @@ from sklearn.metrics import silhouette_score
 
 def load_code_descriptors(desc_file):
     """
-    Reads something like 'icd10cm-codes-April-2025.txt' with lines:
+    Reads a file like 'icd10cm-codes-April-2025.txt' with lines:
       F11.2    Opioid dependence
       F14.9    Cocaine use, unspecified
       ...
-    Returns { 'F11.2': 'Opioid dependence', 'F14.9': 'Cocaine use, unspecified', ... }
+    Returns a dict: { 'F11.2': 'Opioid dependence', ... }
     """
     code2desc = {}
     with open(desc_file, "r", encoding="utf-8") as f:
@@ -75,34 +75,42 @@ def load_code_descriptors(desc_file):
 
 class SingleRowEHRDataset(Dataset):
     """
-    Reads a CSV with co-occurring diagnoses across columns Diagnóstico 1..20.
-    Maps codes to their descriptors, building a single text string for each patient.
+    Reads a CSV that has:
+      - 'PrincipalDiagnosis'
+      - 'Diagnosis2' ... 'Diagnosis20'
+      for each patient, plus an 'ID' column if available.
+    Maps ICD codes to their descriptors, building a single text string
+    for each patient.
     """
     def __init__(self, df, desc_file, max_length=256):
-        # df is already filtered to males or females as needed
         df = df.reset_index(drop=True)
 
+        # Ensure an 'ID' column
         if "ID" not in df.columns:
             df["ID"] = df.index + 1
 
         self.df = df
         self.code2desc = load_code_descriptors(desc_file)
 
-        # Build text lines from Diagnóstico 1..20
+        # We will gather codes from PrincipalDiagnosis + Diagnosis2..Diagnosis20
+        diag_cols = ["PrincipalDiagnosis"] + [f"Diagnosis{i}" for i in range(2, 21) if f"Diagnosis{i}" in df.columns]
+
+        # Build textual lines for each row
         self.texts = []
         for _, row in df.iterrows():
-            diag_codes = []
-            for i in range(1, 21):
-                col_name = f"Diagnóstico {i}"
-                if col_name in row and pd.notna(row[col_name]):
-                    diag_codes.append(str(row[col_name]).strip())
+            codes_found = []
+            for col_name in diag_cols:
+                if pd.notna(row.get(col_name, None)):
+                    code_val = str(row[col_name]).strip()
+                    if code_val:
+                        codes_found.append(code_val)
 
             # Convert each ICD code to a textual descriptor
-            desc_list = [self.code2desc.get(code, "NOCODE") for code in diag_codes]
+            desc_list = [self.code2desc.get(cd, "NOCODE") for cd in codes_found]
             if not desc_list:
                 desc_list = ["NOCODE"]
 
-            # Join all descriptors into a single string
+            # Join all descriptors into a single text
             text_line = " ".join(desc_list)
             self.texts.append(text_line)
 
@@ -177,7 +185,6 @@ def mlm_pretrain(dataset, output_dir="mlm_pretrain", epochs=1, batch_size=8, lr=
 
     n = len(dataset)
     if n < 2:
-        # If extremely small, skip training or do minimal
         print(f"Warning: dataset too small (n={n}). Skipping MLM pretraining.")
         return None
 
@@ -347,12 +354,13 @@ def generate_embeddings(model_dir, dataset, batch_size=8):
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if not os.path.exists(model_dir) or not os.path.isfile(os.path.join(model_dir, "contrastive_model.bin")):
+    contrastive_bin = os.path.join(model_dir, "contrastive_model.bin")
+    if not os.path.exists(model_dir) or not os.path.isfile(contrastive_bin):
         print(f"Warning: no contrastive model file in '{model_dir}'. Skipping embedding generation.")
         return None
 
     model = ContrastiveModel(model_dir)
-    model.load_state_dict(torch.load(os.path.join(model_dir, "contrastive_model.bin")))
+    model.load_state_dict(torch.load(contrastive_bin, map_location=device))
     model = model.to(device)
     model.eval()
 
@@ -410,7 +418,6 @@ def bootstrap_find_k(embeddings, max_k=10, n_bootstrap=5, sample_frac=0.01):
         for k in range(2, max_k+1):
             ac = AgglomerativeClustering(n_clusters=k)
             labels = ac.fit_predict(sub_emb)
-            # Only compute silhouette if more than one cluster exists
             if len(np.unique(labels)) > 1:
                 score = silhouette_score(sub_emb, labels)
                 k2scores[k].append(score)
@@ -440,26 +447,36 @@ def run_kmeans(embeddings, k):
 # 8) c-DF-IPF
 #############################################################################
 
-def compute_cdfipf(df, diag_col="Diagnóstico 1", cluster_col="cluster"):
+def compute_cdfipf(df, cluster_col="cluster"):
     """
-    For each cluster, compute cluster-level Disease Frequency – Inverse Patient Frequency.
-    This is analogous to TF-IDF for diagnoses across clusters.
+    For each cluster, compute cluster-level c-DF–IPF across *all diagnosis columns*:
+      PrincipalDiagnosis, Diagnosis2..Diagnosis20.
+    We'll gather all codes into a set for each patient, then compute c-DF–IPF.
     """
     df = df.copy()
-    all_codes = set()
-    pid2codes = {}
+    # Identify the relevant diagnosis columns
+    diag_cols = ["PrincipalDiagnosis"] + [f"Diagnosis{i}" for i in range(2, 21) if f"Diagnosis{i}" in df.columns]
 
-    # Build a set of codes assigned to each patient
+    pid2codes = {}
+    all_codes = set()
+
     for idx, row in df.iterrows():
-        pid = row["ID"]  # Must exist in df
-        diag_str = row.get(diag_col, "")
-        codes = set(x.strip() for x in diag_str.split(",") if x.strip())
-        if not codes:
-            codes = {"NOCODE"}
-        pid2codes[pid] = codes
-        all_codes.update(codes)
+        pid = row["ID"]
+        codes_set = set()
+        # Gather codes from each column
+        for col in diag_cols:
+            val = row.get(col, None)
+            if pd.notna(val):
+                val = str(val).strip()
+                if val:
+                    codes_set.add(val)
+        if not codes_set:
+            codes_set = {"NOCODE"}
+        pid2codes[pid] = codes_set
+        all_codes.update(codes_set)
 
     n_patients = df["ID"].nunique()
+
     # cluster -> list of pids
     cluster2pids = {}
     for idx, row in df.iterrows():
@@ -468,18 +485,21 @@ def compute_cdfipf(df, diag_col="Diagnóstico 1", cluster_col="cluster"):
         cluster2pids.setdefault(c, []).append(pid)
 
     # Count how many patients have each code
-    code2count = {c: 0 for c in all_codes}
-    for pid, cset in pid2codes.items():
-        for cd in cset:
+    code2count = {cd: 0 for cd in all_codes}
+    for pid, code_set in pid2codes.items():
+        for cd in code_set:
             code2count[cd] += 1
 
     # Inverse Patient Frequency: log(total patients / code frequency)
     code2ipf = {}
-    for c in all_codes:
-        nd = code2count[c]
-        code2ipf[c] = math.log(n_patients / nd) if nd > 0 else 0
+    for cd in all_codes:
+        nd = code2count[cd]
+        if nd > 0:
+            code2ipf[cd] = math.log(n_patients / nd)
+        else:
+            code2ipf[cd] = 0.0
 
-    # For each cluster, compute average IPF for codes present
+    # c-DF–IPF for each cluster:
     cluster2dfipf = {}
     for c, pids in cluster2pids.items():
         sums = {cd: 0.0 for cd in all_codes}
@@ -487,11 +507,9 @@ def compute_cdfipf(df, diag_col="Diagnóstico 1", cluster_col="cluster"):
             for cd in pid2codes[pid]:
                 sums[cd] += code2ipf[cd]
         csize = len(pids)
-        if csize == 0:
-            cluster2dfipf[c] = sums
-            continue
-        for cd in sums:
-            sums[cd] /= csize
+        if csize > 0:
+            for cd in sums:
+                sums[cd] /= csize
         cluster2dfipf[c] = sums
 
     return cluster2dfipf
@@ -525,7 +543,7 @@ def run_pipeline_for_subset(df_subset, desc_file, mlm_epochs, fine_tune_epochs,
         lr=5e-5
     )
     if not mlm_trainer:
-        print(f"No MLM model trained for '{output_prefix}' (likely not enough samples).")
+        print(f"No MLM model trained for '{output_prefix}' (likely too few samples).")
         return
 
     # 3) Contrastive Fine-tuning
@@ -568,7 +586,7 @@ def run_pipeline_for_subset(df_subset, desc_file, mlm_epochs, fine_tune_epochs,
 
     # 7) c-DF-IPF
     print(f"\n=== c-DF-IPF for subset '{output_prefix}' ===")
-    cluster2dfipf = compute_cdfipf(df_subset, diag_col="Diagnóstico 1", cluster_col="cluster")
+    cluster2dfipf = compute_cdfipf(df_subset, cluster_col="cluster")
 
     for c in sorted(cluster2dfipf.keys()):
         code_map = cluster2dfipf[c]
@@ -583,7 +601,6 @@ def run_pipeline_for_subset(df_subset, desc_file, mlm_epochs, fine_tune_epochs,
     df_subset.to_csv(out_file, index=False)
     print(f"\nClustering complete for '{output_prefix}'. Results saved in '{out_file}'.")
 
-
 #############################################################################
 # MAIN
 #############################################################################
@@ -591,7 +608,7 @@ def run_pipeline_for_subset(df_subset, desc_file, mlm_epochs, fine_tune_epochs,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_csv", required=True,
-                        help="CSV with Diagnóstico columns (Diagnóstico 1..20), including 'Sexo'.")
+                        help="CSV with English columns (PrincipalDiagnosis, Diagnosis2..20, Sex, etc.).")
     parser.add_argument("--desc_file", required=True,
                         help="ICD code descriptors file (CODE [whitespace] DESC).")
     parser.add_argument("--mlm_epochs", type=int, default=5,
@@ -606,18 +623,15 @@ def main():
 
     # Read the entire dataset
     df_full = pd.read_csv(args.train_csv, low_memory=True)
-    
-    # -----------------------------------------------------------------------
-    # Minimal fix: ensure df_full has "ID" before we do anything else
-    # -----------------------------------------------------------------------
-    if "ID" not in df_full.columns:
-        df_full["ID"] = df_full.index + 1
-    
     print(f"Loaded {len(df_full)} rows from '{args.train_csv}'.")
 
-    # Separate into males (Sexo=1) and females (Sexo=2)
-    df_males = df_full[df_full["Sexo"] == 1].copy()
-    df_females = df_full[df_full["Sexo"] == 2].copy()
+    # Ensure we have an ID
+    if "ID" not in df_full.columns:
+        df_full["ID"] = df_full.index + 1
+
+    # Separate into males (Sex=1) and females (Sex=2)
+    df_males = df_full[df_full["Sex"] == 1].copy()
+    df_females = df_full[df_full["Sex"] == 2].copy()
 
     print(f"Males subset: {len(df_males)} rows.  Females subset: {len(df_females)} rows.")
 
@@ -644,7 +658,6 @@ def main():
     )
 
     print("\nAll done. Two clustering outputs were produced, one for males and one for females.")
-
 
 if __name__ == "__main__":
     main()

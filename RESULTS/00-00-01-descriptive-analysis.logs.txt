@@ -1,203 +1,203 @@
 
-=== Analyzing subset with Sexo=1 (n=6705) ===
+=== Analyzing subset with Sex=1 (n=5826) ===
 
-Descriptive Stats for 'Año' (Sexo=1):
+Descriptive Stats for 'Year' (Sex=1):
 Value Counts:
- Año
+ Year
 2019    1577
 2018    1495
 2017    1296
-2020    1258
 2016    1079
+2020     379
 Name: count, dtype: int64
 Proportions (%):
- Año
-2019    23.52
-2018    22.30
-2017    19.33
-2020    18.76
-2016    16.09
+ Year
+2019    27.07
+2018    25.66
+2017    22.25
+2016    18.52
+2020     6.51
 Name: count, dtype: float64
 
-Descriptive Stats for 'Sexo' (subset = 1 only):
+Descriptive Stats for 'Sex' (subset = 1 only):
 Value Counts:
- Sexo
-1    6705
+ Sex
+1    5826
 Name: count, dtype: int64
 Proportions (%):
- Sexo
+ Sex
 1    100.0
 Name: count, dtype: float64
 
-Descriptive Stats for 'Diagnóstico Principal' (Sexo=1):
+Descriptive Stats for 'PrincipalDiagnosis' (Sex=1):
 Top 10 Value Counts:
- Diagnóstico Principal
-F29        270
-K35.80     201
-F23        185
-F91.9      150
-J93.11     107
-E10.10      88
-F12.159     87
-J45.901     86
-F12.259     80
-J18.9       80
+ PrincipalDiagnosis
+F29        226
+K35.80     168
+F23        163
+F91.9      119
+J93.11      93
+J45.901     81
+F12.259     75
+E10.10      73
+J18.9       72
+F12.159     72
 Name: count, dtype: int64
-Total unique codes: 1603
+Total unique codes: 1469
 
-Descriptive Stats for 'Estancia Días' (Sexo=1):
-count     6705.000000
-mean        10.366145
-std        131.569952
+Descriptive Stats for 'DaysOfStay' (Sex=1):
+count     5826.000000
+mean        10.696189
+std        141.070240
 min          0.000000
 25%          2.000000
 50%          5.000000
-75%         10.000000
+75%         11.000000
 max      10697.000000
-Name: Estancia Días, dtype: float64
+Name: DaysOfStay, dtype: float64
 
-Descriptive Stats for 'Nivel Severidad APR' (Sexo=1):
+Descriptive Stats for 'APRSeverityLevel' (Sex=1):
 Value Counts:
- Nivel Severidad APR
-1    4004
-2    2135
-3     463
-4      84
-0      19
+ APRSeverityLevel
+1    3489
+2    1857
+3     395
+4      68
+0      17
 Name: count, dtype: int64
 Proportions (%):
- Nivel Severidad APR
-1    59.72
-2    31.84
-3     6.91
-4     1.25
-0     0.28
+ APRSeverityLevel
+1    59.89
+2    31.87
+3     6.78
+4     1.17
+0     0.29
 Name: count, dtype: float64
 
-Descriptive Stats for 'Coste APR' (Sexo=1):
-count      6705.000000
-mean       4621.667680
-std        4385.420401
+Descriptive Stats for 'APRCost' (Sex=1):
+count      5826.000000
+mean       4508.492705
+std        4257.911939
 min         705.735921
-25%        2749.586782
-50%        3929.479361
-75%        5146.988142
+25%        2664.385753
+50%        3901.473837
+75%        4933.819335
 max      106553.421875
-Name: Coste APR, dtype: float64
+Name: APRCost, dtype: float64
 
-=== Finished analysis for Sexo=1. ===
+=== Finished analysis for Sex=1. ===
 
-=== Analyzing subset with Sexo=2 (n=7801) ===
+=== Analyzing subset with Sex=2 (n=6667) ===
 
-Descriptive Stats for 'Año' (Sexo=2):
+Descriptive Stats for 'Year' (Sex=2):
 Value Counts:
- Año
+ Year
 2019    1749
 2018    1695
-2020    1541
 2017    1479
 2016    1337
+2020     407
 Name: count, dtype: int64
 Proportions (%):
- Año
-2019    22.42
-2018    21.73
-2020    19.75
-2017    18.96
-2016    17.14
+ Year
+2019    26.23
+2018    25.42
+2017    22.18
+2016    20.05
+2020     6.10
 Name: count, dtype: float64
 
-Descriptive Stats for 'Sexo' (subset = 2 only):
+Descriptive Stats for 'Sex' (subset = 2 only):
 Value Counts:
- Sexo
-2    7801
+ Sex
+2    6667
 Name: count, dtype: int64
 Proportions (%):
- Sexo
+ Sex
 2    100.0
 Name: count, dtype: float64
 
-Descriptive Stats for 'Diagnóstico Principal' (Sexo=2):
+Descriptive Stats for 'PrincipalDiagnosis' (Sex=2):
 Top 10 Value Counts:
- Diagnóstico Principal
-F60.3      275
-O48.0      228
-N10        215
-O42.02     179
-F43.25     172
-F91.9      150
-O99.334    128
-F32.9      125
-J45.901    121
-K35.80     108
+ PrincipalDiagnosis
+F60.3      229
+O48.0      188
+N10        182
+O42.02     147
+F43.25     144
+F91.9      130
+J45.901    111
+F32.9      105
+K35.80      97
+O99.334     92
 Name: count, dtype: int64
-Total unique codes: 1349
+Total unique codes: 1239
 
-Descriptive Stats for 'Estancia Días' (Sexo=2):
-count    7801.000000
-mean        7.224715
-std        11.784524
+Descriptive Stats for 'DaysOfStay' (Sex=2):
+count    6667.000000
+mean        7.390880
+std        12.244578
 min         0.000000
 25%         2.000000
 50%         4.000000
 75%         8.000000
 max       458.000000
-Name: Estancia Días, dtype: float64
+Name: DaysOfStay, dtype: float64
 
-Descriptive Stats for 'Nivel Severidad APR' (Sexo=2):
+Descriptive Stats for 'APRSeverityLevel' (Sex=2):
 Value Counts:
- Nivel Severidad APR
-1    4506
-2    2785
-3     436
-4      48
-0      26
+ APRSeverityLevel
+1    3866
+2    2376
+3     363
+4      39
+0      23
 Name: count, dtype: int64
 Proportions (%):
- Nivel Severidad APR
-1    57.76
-2    35.70
-3     5.59
-4     0.62
-0     0.33
+ APRSeverityLevel
+1    57.99
+2    35.64
+3     5.44
+4     0.58
+0     0.34
 Name: count, dtype: float64
 
-Descriptive Stats for 'Coste APR' (Sexo=2):
-count      7801.000000
-mean       3884.362050
-std        3136.439996
+Descriptive Stats for 'APRCost' (Sex=2):
+count      6667.000000
+mean       3805.625691
+std        3137.502690
 min         945.445284
-25%        2477.039158
-50%        3295.185546
-75%        4378.258672
+25%        2371.917134
+50%        3254.228736
+75%        4283.959472
 max      105928.789062
-Name: Coste APR, dtype: float64
+Name: APRCost, dtype: float64
 
-=== Finished analysis for Sexo=2. ===
+=== Finished analysis for Sex=2. ===
 
-=== Statistical Comparison: Males (Sexo=1) vs. Females (Sexo=2) ===
+=== Statistical Comparison: Males (Sex=1) vs. Females (Sex=2) ===
 
---- Mann-Whitney U test for 'Estancia Días' ---
-  Males n=6705, median=5.00
-  Females n=7801, median=4.00
-  U-statistic=28404035.0, p-value=2.28e-19
+--- Mann-Whitney U test for 'DaysOfStay' ---
+  Males n=5826, median=5.00
+  Females n=6667, median=4.00
+  U-statistic=21025669.5, p-value=1.06e-15
 
---- Mann-Whitney U test for 'Coste APR' ---
-  Males n=6705, median=3929.48
-  Females n=7801, median=3295.19
-  U-statistic=31057313.5, p-value=1.02e-84
+--- Mann-Whitney U test for 'APRCost' ---
+  Males n=5826, median=3901.47
+  Females n=6667, median=3254.23
+  U-statistic=23031488.5, p-value=4.46e-72
 
---- Chi-Square for 'Año' (Male vs. Female) ---
+--- Chi-Square for 'Year' (Male vs. Female) ---
   #categories = 5
-  chi2=6.898, p-value=0.141, dof=4
+  chi2=5.461, p-value=0.243, dof=4
 
---- Chi-Square for 'Nivel Severidad APR' (Male vs. Female) ---
+--- Chi-Square for 'APRSeverityLevel' (Male vs. Female) ---
   #categories = 5
-  chi2=44.651, p-value=4.7e-09, dof=4
+  chi2=36.620, p-value=2.16e-07, dof=4
 
---- Chi-Square for 'Diagnóstico Principal (Limited)' (Male vs. Female) ---
+--- Chi-Square for 'PrincipalDiagnosis (Limited)' (Male vs. Female) ---
   #categories = 21
-  chi2=1342.744, p-value=2.07e-272, dof=20
+  chi2=1117.333, p-value=3.52e-224, dof=20
 
 === End of M/F Comparisons ===
 
