@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 *.swp
 ARCHIVE/
+# Ignore all logs in RESULTS folder
+RESULTS/*.logs.txt
+
