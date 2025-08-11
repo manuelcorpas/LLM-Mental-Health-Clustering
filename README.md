@@ -92,6 +92,25 @@ Access to the raw RAE-CMBD dataset must be requested directly from the Spanish M
 
 ---
 
+
+---
+
+## 📁 RESULTS Overview
+
+| File | Purpose | Links to Preprint |
+|------|---------|-------------------|
+| `RESULTS/FIGS/` | Figures 1–9 for manuscript | Matches figure captions in preprint |
+| `RESULTS/clustered_patients_female.csv` | Cluster assignments for female patients | Methods section & Results, Female clusters |
+| `RESULTS/clustered_patients_male.csv` | Cluster assignments for male patients | Methods section & Results, Male clusters |
+| `RESULTS/supplementary_table_1_sud_by_sex.csv` | Summary of SUD distribution by sex | Supplementary Table S1 |
+| `RESULTS/supplementary_table_2_all_clusters.docx` | All clusters with ICD-10 and semantic terms | Supplementary Table S3 |
+| `RESULTS/supplementary_table_2_all_clusters_paired.docx` | Cluster pairs for comparison | Supplementary data |
+| `RESULTS/supplementary_table_2_paired_icd_terms.docx` | ICD term mapping for paired clusters | Supplementary data |
+| `RESULTS/supplementary_table_2_word_format.docx` | Word-formatted version of cluster table | Supplementary data |
+| `RESULTS/supplementary_table_word_format.docx` | Alternate Word format | Supplementary data |
+
+---
+
 ## 📄 License
 
 - **Code:** MIT License  
