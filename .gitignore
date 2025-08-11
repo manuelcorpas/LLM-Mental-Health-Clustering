@@ -1,12 +1,33 @@
-RESULTS/00-00-01-descriptive-analysis.logs.txt
-RESULTS/*
+# Ignore data folder entirely
 DATA/
+
+# Ignore Python cache
 __pycache__/
-*.log
-*.csv
+
+# Ignore temporary/OS files
 .DS_Store
 *.swp
-ARCHIVE/
-# Ignore all logs in RESULTS folder
-RESULTS/*.logs.txt
 
+# Ignore all logs
+*.log
+*.logs.txt
+
+# Ignore all of RESULTS by default
+RESULTS/**
+
+# Keep final figures
+!RESULTS/FIGS/
+!RESULTS/FIGS/**
+
+# Keep selected CSV outputs
+!RESULTS/clustered_patients_female.csv
+!RESULTS/clustered_patients_male.csv
+!RESULTS/supplementary_table_1_sud_by_sex.csv
+
+# Keep supplementary Word tables (optional)
+!RESULTS/supplementary_table_*.docx
+
+# Ignore archive folder
+ARCHIVE/
+.DS_Store
+.DS_Store
