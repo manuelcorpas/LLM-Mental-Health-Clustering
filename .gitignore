@@ -1,3 +1,5 @@
+RESULTS/00-00-01-descriptive-analysis.logs.txt
+RESULTS/*
 DATA/
 __pycache__/
 *.log

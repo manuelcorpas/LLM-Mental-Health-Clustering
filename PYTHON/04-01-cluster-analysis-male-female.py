@@ -9,7 +9,7 @@ Render male & female clusters with PCA in THREE plots:
  3) Only female clusters.
 
 Usage Example:
-  python3.11 04-01-cluster-analysis-male-female.py \
+  python3.11 PYTHON/04-01-cluster-analysis-male-female.py \
     --male_csv RESULTS/clustered_patients_male.csv \
     --female_csv RESULTS/clustered_patients_female.csv \
     --desc_file DATA/Code-descriptions-April-2025/icd10cm-codes-April-2025.txt \

@@ -4,11 +4,12 @@ from datetime import datetime
 # --------------------- CONFIGURATION ---------------------
 INPUT_CSV = "DATA/RAECMBD_454_20241226-163036.csv"
 OUTPUT_CSV = "DATA/RAECMBD_454_20241226-163036_pruned.csv"
+DISCARDED_CSV = "DATA/RAECMBD_454_20241226-163036_discarded.csv"
 
-# We will prune entries strictly AFTER end of 15 Mar 2020
+# Only keep rows with Fecha de Ingreso <= 15 Mar 2020
 CUTOFF_DATE = datetime(2020, 3, 15, 23, 59)
 
-# A dictionary mapping original Spanish headers -> English safe headers
+# Spanish -> English header mapping
 HEADER_MAP = {
     "Año": "Year",
     "Comunidad Autónoma": "AutonomousCommunity",
@@ -88,67 +89,126 @@ HEADER_MAP = {
     "Coste APR": "APRCost"
 }
 
-# --------------------- MAIN SCRIPT -----------------------
 def main():
-    with open(INPUT_CSV, mode="r", encoding="utf-8", newline="") as infile, \
-         open(OUTPUT_CSV, mode="w", encoding="utf-8", newline="") as outfile:
+    # Stats counters
+    total_rows = 0
+    parse_fail_count = 0
+    date_pruned_count = 0
+    diag_pruned_count = 0
+    sex_pruned_count = 0
+    kept_count = 0
 
-        # Use comma delimiter (since the file has commas)
+    with open(INPUT_CSV, mode="r", encoding="utf-8", newline="") as infile, \
+         open(OUTPUT_CSV, mode="w", encoding="utf-8", newline="") as outfile, \
+         open(DISCARDED_CSV, mode="w", encoding="utf-8", newline="") as discardfile:
+        
         reader = csv.reader(infile, delimiter=",")
         writer = csv.writer(outfile, delimiter=",")
+        discard_writer = csv.writer(discardfile, delimiter=",")
 
         # Read the raw header
         raw_header_row = next(reader)
-        print("DEBUG: Raw header row as read by Python:")
-        print(raw_header_row)
-
-        # Remove BOM characters and extra spaces from each column name
         original_headers = [col.replace('\ufeff', '').strip() for col in raw_header_row]
-        print("DEBUG: Cleaned headers:")
-        print(original_headers)
 
-        # Check for "Fecha de Ingreso" (which we've mapped to "AdmissionDate")
+        # Must have "Fecha de Ingreso"
         if "Fecha de Ingreso" not in original_headers:
-            raise ValueError(f"'Fecha de Ingreso' not in {original_headers}")
+            raise ValueError(f"'Fecha de Ingreso' not found in {original_headers}")
 
-        # Build the safe headers in English
+        # Convert Spanish -> English
         new_headers = []
         for col_name in original_headers:
             if col_name in HEADER_MAP:
                 new_headers.append(HEADER_MAP[col_name])
             else:
-                # fallback: remove non-alphanumeric to create a safe name
+                # fallback: remove non-alphanumeric
                 safe_name = "".join(ch for ch in col_name if ch.isalnum())
                 if not safe_name:
                     safe_name = "UnnamedColumn"
                 new_headers.append(safe_name)
 
+        # Write headers to both main and discard CSV
         writer.writerow(new_headers)
+        discard_writer.writerow(new_headers)
 
-        # Get the index of "Fecha de Ingreso" in the original (Spanish) headers
+        # Indices
         fecha_ingreso_idx = original_headers.index("Fecha de Ingreso")
-        # And figure out which position "AdmissionDate" occupies in new_headers
-        admission_date_idx = new_headers.index("AdmissionDate")
+        
+        # We'll also locate the "Sexo" -> "Sex" index, for checking 1 vs 2
+        try:
+            sex_idx = new_headers.index("Sex")
+        except ValueError:
+            sex_idx = None
 
-        # Iterate over rows, parse the date, and prune if after 15-Mar-2020
+        # We'll find PrincipalDiagnosis if it exists
+        try:
+            idx_principal_diag = new_headers.index("PrincipalDiagnosis")
+        except ValueError:
+            idx_principal_diag = None
+
+        # Iterate over rows
         for row in reader:
-            if len(row) <= fecha_ingreso_idx:
+            total_rows += 1
+
+            if len(row) < len(original_headers):
+                # Incomplete row - discard
+                discard_writer.writerow(row)
                 continue
 
-            ingreso_str = row[fecha_ingreso_idx].strip()
-
-            # "DDMMYYYY HHMM" format
+            # Parse the admission date
+            date_str = row[fecha_ingreso_idx].strip()
             try:
-                ingreso_date = datetime.strptime(ingreso_str, "%d%m%Y %H%M")
+                ingreso_date = datetime.strptime(date_str, "%d%m%Y %H%M")
             except ValueError:
-                # If date parsing fails, skip or handle differently
+                # parse fail => discard
+                parse_fail_count += 1
+                discard_writer.writerow(row)
                 continue
 
-            if ingreso_date <= CUTOFF_DATE:
-                # Keep the row as is (columns are still aligned, just the headers changed)
-                writer.writerow(row)
+            # date > CUTOFF => discard
+            if ingreso_date > CUTOFF_DATE:
+                date_pruned_count += 1
+                discard_writer.writerow(row)
+                continue
 
-    print(f"Done! Filtered rows saved to: {OUTPUT_CSV}")
+            # Check sex if we have that column
+            if sex_idx is not None and sex_idx < len(row):
+                sex_val = row[sex_idx].strip()
+                if sex_val not in ["1", "2"]:
+                    sex_pruned_count += 1
+                    discard_writer.writerow(row)
+                    continue
+
+            # Check PrincipalDiagnosis if available
+            if idx_principal_diag is not None and idx_principal_diag < len(row):
+                principal_code = row[idx_principal_diag].strip()
+                if not principal_code.startswith("F"):
+                    diag_pruned_count += 1
+                    discard_writer.writerow(row)
+                    continue
+            else:
+                # If no principal diag column or it's empty, discard
+                diag_pruned_count += 1
+                discard_writer.writerow(row)
+                continue
+
+            # If we reach here, row is kept
+            kept_count += 1
+            writer.writerow(row)
+
+    # Print summary stats
+    discarded_count = parse_fail_count + date_pruned_count + diag_pruned_count + sex_pruned_count
+    print("===== PRUNING REPORT =====")
+    print(f"Total rows read:        {total_rows}")
+    print(f"Rows kept (final):     {kept_count}")
+    print(f"Rows discarded total:  {discarded_count}")
+    print("Breakdown of discarded reasons:")
+    print(f"  - parse_fail_count  : {parse_fail_count}")
+    print(f"  - date_pruned_count : {date_pruned_count}")
+    print(f"  - diag_pruned_count : {diag_pruned_count}")
+    print(f"  - sex_pruned_count  : {sex_pruned_count}")
+
+    print(f"\nDone! Filtered rows saved to: {OUTPUT_CSV}")
+    print(f"Discarded rows saved to: {DISCARDED_CSV}")
 
 if __name__ == "__main__":
     main()
